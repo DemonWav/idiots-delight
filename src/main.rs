@@ -55,13 +55,13 @@ fn main() {
             let mut thread_win_map = HashMap::<i8, u64>::new();
 
             let mut count: u64;
-            count = counter_bg.fetch_add(1, Ordering::SeqCst) + 1;
+            count = counter_bg.fetch_add(1, Ordering::SeqCst);
 
             while count < iterations {
                 deck.shuffle(&mut thread_rng());
 
-                if count % 1_000_000 == 0 {
-                    println!("Attempt {}...", count.to_formatted_string(&Locale::en));
+                if (count + 1) % 1_000_000 == 0 {
+                    println!("Attempt {}...", (count + 1).to_formatted_string(&Locale::en));
                 }
 
                 let hand_size = play_game(&deck, &mut hand);
@@ -71,7 +71,7 @@ fn main() {
                     thread_win_map.insert(hand_size, 1);
                 }
 
-                count = counter_bg.fetch_add(1, Ordering::SeqCst) + 1;
+                count = counter_bg.fetch_add(1, Ordering::SeqCst);
             }
 
             let mut win_lock = win_map_bg.lock().unwrap();
