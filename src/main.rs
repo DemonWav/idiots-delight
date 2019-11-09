@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::{thread, env};
 use std::time::Duration;
 use num_format::{Locale, ToFormattedString};
-use std::collections::HashMap;
 use std::process::exit;
 
 fn main() {
@@ -35,7 +34,7 @@ fn main() {
 
     let counter = Arc::new(AtomicU64::new(0));
     let done = Arc::new(AtomicBool::new(false));
-    let win_map = Arc::new(Mutex::new(HashMap::<i8, u64>::new()));
+    let win_map: Arc<Mutex<[u64; 27]>> = Arc::new(Mutex::new([0; 27]));
 
     let mut locks = Vec::<Arc<Mutex<usize>>>::new();
 
@@ -52,7 +51,7 @@ fn main() {
             let mut deck = gen_deck();
             let mut hand: [*const Card; 52] = [&deck[0] as *const Card; 52];
 
-            let mut thread_win_map = HashMap::<i8, u64>::new();
+            let mut thread_win_map: [u64; 27] = [0; 27];
 
             let mut count: u64;
             count = counter_bg.fetch_add(1, Ordering::SeqCst);
@@ -64,23 +63,15 @@ fn main() {
                     println!("Attempt {}...", (count + 1).to_formatted_string(&Locale::en));
                 }
 
-                let hand_size = play_game(&deck, &mut hand);
-                if let Some(num) = thread_win_map.get_mut(&hand_size) {
-                    *num += 1;
-                } else {
-                    thread_win_map.insert(hand_size, 1);
-                }
+                let hand_size = play_game(&deck, &mut hand) + 1;
+                thread_win_map[(hand_size / 2) as usize] += 1;
 
                 count = counter_bg.fetch_add(1, Ordering::SeqCst);
             }
 
             let mut win_lock = win_map_bg.lock().unwrap();
-            for (k, v) in thread_win_map {
-                if let Some(num) = win_lock.get_mut(&k) {
-                    *num += v;
-                } else {
-                    win_lock.insert(k, v);
-                }
+            for (i, num) in thread_win_map.iter().enumerate() {
+                win_lock[i] += *num;
             }
         });
     }
@@ -125,11 +116,8 @@ fn main() {
     println!();
     println!();
 
-    let win_lock = win_map.lock().unwrap();
-    let mut values: Vec<(&i8, &u64)> = win_lock.iter().collect();
-    values.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
-    for (k, v) in values {
-        println!("Cards Left: {: >2} | Count: {}", k + 1, v);
+    for (i, num) in win_map.lock().unwrap().iter().enumerate() {
+        println!("Cards Left: {: >2} | Count: {}", i * 2, num);
     }
 }
 
