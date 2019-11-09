@@ -90,16 +90,11 @@ fn main() {
                 thread::sleep(Duration::from_secs(1));
                 let finish = counter_bg.load(Ordering::SeqCst);
                 counts[count] = finish - start;
-                if count == counts.len() - 1 {
+                count += 1;
+                if count == counts.len() {
                     count = 0;
-                    let mut avg: f64 = 0.0;
-                    for val in counts.iter() {
-                        avg += *val as f64;
-                    }
-                    avg /= 10.0;
-                    println!("Games / second: {}", avg);
-                } else {
-                    count += 1;
+                    let average = (counts.iter().sum::<u64>() as f64) / (counts.len() as f64);
+                    println!("Games / second: {}", average);
                 }
             }
         });
