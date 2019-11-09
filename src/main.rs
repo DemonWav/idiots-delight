@@ -7,19 +7,41 @@ use rand::thread_rng;
 use rand::seq::SliceRandom;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
-use std::thread;
+use std::{thread, env};
 use std::time::Duration;
 use num_format::{Locale, ToFormattedString};
+use std::collections::HashMap;
+use std::process::exit;
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    let iterations: u64 = if args.len() == 1 {
+        1_000_000_000
+    } else if args.len() == 2 {
+        match args[1].parse::<u64>() {
+            Ok(n) => n,
+            Err(_) => {
+                eprintln!("Argument must be an integer");
+                exit(1);
+            }
+        }
+    } else {
+        eprintln!("Usage: idiots-delight [simulations]");
+        exit(1);
+    };
+
+    println!("Running {} simulations", iterations.to_formatted_string(&Locale::en));
+    println!();
+
     let counter = Arc::new(AtomicU64::new(0));
     let done = Arc::new(AtomicBool::new(false));
+    let win_map = Arc::new(Mutex::new(HashMap::<i8, u64>::new()));
 
     let mut locks = Vec::<Arc<Mutex<usize>>>::new();
 
     for _ in 0..num_cpus::get() {
         let counter_bg = counter.clone();
-        let done_bg = done.clone();
+        let win_map_bg = win_map.clone();
 
         let lock = Arc::new(Mutex::new(0));
         locks.push(lock.clone());
@@ -30,37 +52,35 @@ fn main() {
             let mut deck = gen_deck();
             let mut hand: [*const Card; 52] = [&deck[0] as *const Card; 52];
 
-            while !done_bg.load(Ordering::SeqCst) {
-                let count = counter_bg.fetch_add(1, Ordering::SeqCst) + 1;
+            let mut thread_win_map = HashMap::<i8, u64>::new();
 
+            let mut count: u64;
+            count = counter_bg.fetch_add(1, Ordering::SeqCst) + 1;
+
+            while count < iterations {
                 deck.shuffle(&mut thread_rng());
 
                 if count % 1_000_000 == 0 {
                     println!("Attempt {}...", count.to_formatted_string(&Locale::en));
                 }
 
-                if play_game(&deck, &mut hand) {
-                    break;
+                let hand_size = play_game(&deck, &mut hand);
+                if let Some(num) = thread_win_map.get_mut(&hand_size) {
+                    *num += 1;
+                } else {
+                    thread_win_map.insert(hand_size, 1);
                 }
+
+                count = counter_bg.fetch_add(1, Ordering::SeqCst) + 1;
             }
 
-            if done_bg.load(Ordering::SeqCst) {
-                // Some other thread figured it out
-                return;
-            }
-            done_bg.store(true, Ordering::SeqCst);
-
-            println!();
-            println!();
-            println!("*******************************************************");
-            println!("Won after {} attempts", counter_bg.load(Ordering::SeqCst));
-            println!("*******************************************************");
-            println!("Deck:");
-            println!();
-            println!();
-            println!();
-            for card in deck.iter() {
-                println!("{}", card);
+            let mut win_lock = win_map_bg.lock().unwrap();
+            for (k, v) in thread_win_map {
+                if let Some(num) = win_lock.get_mut(&k) {
+                    *num += v;
+                } else {
+                    win_lock.insert(k, v);
+                }
             }
         });
     }
@@ -99,9 +119,21 @@ fn main() {
     for lock in locks {
         let _ = lock.lock().unwrap();
     }
+    done.store(true, Ordering::SeqCst);
+
+    println!();
+    println!();
+    println!();
+
+    let win_lock = win_map.lock().unwrap();
+    let mut values: Vec<(&i8, &u64)> = win_lock.iter().collect();
+    values.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+    for (k, v) in values {
+        println!("Cards Left: {: >2} | Count: {}", k + 1, v);
+    }
 }
 
-fn play_game<'a>(deck: &'a [Card; 52], hand: &'a mut [*const Card; 52]) -> bool {
+fn play_game<'a>(deck: &'a [Card; 52], hand: &'a mut [*const Card; 52]) -> i8 {
     let mut deck_index: usize = 0;
     let mut hand_index: i8 = -1;
 
@@ -113,7 +145,9 @@ fn play_game<'a>(deck: &'a [Card; 52], hand: &'a mut [*const Card; 52]) -> bool 
             }
             hand[hand_index as usize] = &deck[deck_index] as *const Card;
             deck_index += 1;
-            continue;
+            if hand_index < 3 {
+                continue;
+            }
         }
         if unsafe { (*hand[hand_index as usize]).value == (*hand[(hand_index - 3) as usize]).value } {
             hand_index -= 4;
@@ -125,6 +159,10 @@ fn play_game<'a>(deck: &'a [Card; 52], hand: &'a mut [*const Card; 52]) -> bool 
             continue;
         }
 
+        if deck_index == 52 {
+            break;
+        }
+
         hand_index += 1;
         if hand_index >= 52 {
             break;
@@ -133,7 +171,7 @@ fn play_game<'a>(deck: &'a [Card; 52], hand: &'a mut [*const Card; 52]) -> bool 
         deck_index += 1;
     }
 
-    return hand_index == -1;
+    return hand_index;
 }
 
 fn gen_deck() -> [Card; 52] {
