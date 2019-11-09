@@ -1,0 +1,14 @@
+[package]
+name = "idiots-delight"
+version = "0.1.0"
+authors = ["Kyle Wood <demonwav@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+num_cpus = "1.11.0"
+num-format = "0.4.0"
+rand = "0.7.2"
+
+[profile.release]
+lto = true
+panic = 'abort'
